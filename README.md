@@ -20,11 +20,13 @@ Do every step. Steps 5 and 6 are the ones people miss — without them orders st
 
 ### 1. Install the module
 
-Download this repository and copy the `commerce_paymento` folder into your Drupal site:
+Download **`paymento-drupal-1.0.0.zip`** from the [latest release](https://github.com/paymento/paymento-drupal-plugin/releases/latest) and unzip it into `web/modules/custom/`, so that you end up with:
 
 ```
 web/modules/custom/commerce_paymento
 ```
+
+(Do not use GitHub's "Source code" zip — it contains the whole development repository, not just the module.)
 
 Then enable it:
 

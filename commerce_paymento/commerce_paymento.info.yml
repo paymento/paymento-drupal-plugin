@@ -2,6 +2,7 @@ name: Paymento for Drupal Commerce
 type: module
 description: One-time hosted crypto checkout with durable signed notifications.
 package: Commerce (contrib)
+version: 1.0.0
 core_version_requirement: ^11.4
 dependencies:
   - commerce:commerce_payment

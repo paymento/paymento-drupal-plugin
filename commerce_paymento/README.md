@@ -2,7 +2,7 @@
 
 **Step-by-step installation guide:** https://github.com/paymento/paymento-drupal-plugin#installation — the callback URL and the cron jobs are both required, or paid orders stay in the cart.
 
-Version 0.1 supports Drupal 11.4 / Commerce 3.3, PHP 8.4 with bcmath and MySQL-compatible database locking. Validated fixture: Drupal 11.4.11, Commerce 3.3.13, PHP 8.4.27, MariaDB 11.4. Only the default simple non-shippable checkout is supported. Installing Commerce Shipping makes initiation and first completion refuse processing. Custom checkout, fulfillment fields, subscriptions, partial refunds, and shipment adapters require additional validation.
+Version 1.0 supports Drupal 11.4 / Commerce 3.3, PHP 8.4 with bcmath and MySQL-compatible database locking. Validated fixture: Drupal 11.4.11, Commerce 3.3.13, PHP 8.4.27, MariaDB 11.4. Only the default simple non-shippable checkout is supported. Installing Commerce Shipping makes initiation and first completion refuse processing. Custom checkout, fulfillment fields, subscriptions, partial refunds, and shipment adapters require additional validation.
 
 Install this directory as web/modules/custom/commerce_paymento, then run `drush en commerce_paymento` and `drush updatedb`. Enable a Paymento gateway under Commerce > Configuration > Payment gateways. Select Production or Beta and a server-side credential reference. Put credentials in settings.php (supply real values from environment or your secret manager):
 

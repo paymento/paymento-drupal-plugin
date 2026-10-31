@@ -1,6 +1,6 @@
 {
   "name": "paymento-drupal-plugin",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {"test": "node scripts/test.mjs", "test:native": "docker compose exec -T drupal vendor/bin/drush php:script /paymento-tests/integration.php", "test:http": "node tests/http-checkout.mjs", "test:concurrency": "node tests/concurrency.mjs", "package": "node scripts/package.mjs"}

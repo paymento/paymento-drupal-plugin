@@ -1,0 +1,35 @@
+commerce_paymento.status:
+  path: '/paymento/status/{commerce_order}'
+  defaults:
+    _controller: '\Drupal\commerce_paymento\Controller\StatusController::view'
+    _title: 'Crypto payment status'
+  requirements:
+    _custom_access: '\Drupal\commerce_checkout\Controller\CheckoutController::checkAccess'
+  options:
+    parameters:
+      commerce_order:
+        type: entity:commerce_order
+commerce_paymento.configure_callback:
+  path: '/admin/commerce/config/payment-gateways/{commerce_payment_gateway}/paymento-callback'
+  defaults:
+    _form: '\Drupal\commerce_paymento\Form\CallbackForm'
+    _title: 'Configure Paymento callback'
+  requirements:
+    _permission: 'administer commerce_payment_gateway'
+  options:
+    parameters:
+      commerce_payment_gateway:
+        type: entity:commerce_payment_gateway
+
+commerce_paymento.notify:
+  path: '/paymento/notify/{commerce_payment_gateway}'
+  methods: [POST, PUT]
+  defaults:
+    _controller: '\Drupal\commerce_paymento\Controller\NotifyController::notify'
+  requirements:
+    _access: 'TRUE'
+  options:
+    no_cache: TRUE
+    parameters:
+      commerce_payment_gateway:
+        type: entity:commerce_payment_gateway

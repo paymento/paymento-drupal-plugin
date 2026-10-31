@@ -1,0 +1,22 @@
+name: Native Drupal Commerce integration
+on:
+  push:
+    paths-ignore: ['**/*.md']
+  pull_request:
+    paths-ignore: ['**/*.md']
+permissions:
+  contents: read
+jobs:
+  native-checkout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm test
+      - if: always()
+        run: docker compose --project-name paymento-drupal logs --no-color --tail=100
+      - if: always()
+        run: docker compose --project-name paymento-drupal down --volumes

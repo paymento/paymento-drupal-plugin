@@ -1,0 +1,1 @@
+{"name":"paymento/commerce-paymento","type":"drupal-module","description":"Paymento hosted crypto gateway for Drupal Commerce","license":"GPL-2.0-or-later","require":{"php":"^8.4","drupal/core":"^11.4","drupal/commerce":"^3.3.13","ext-bcmath":"*"}}

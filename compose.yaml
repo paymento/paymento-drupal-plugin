@@ -1,0 +1,39 @@
+name: paymento-drupal
+services:
+  db:
+    image: mariadb:11.4@sha256:d1891ede5a559f1086f55053bb8cc1569b0298338c4d72d71725a7f74f6ba620
+    environment:
+      MARIADB_ROOT_PASSWORD: synthetic-local-root
+      MARIADB_DATABASE: drupal
+      MARIADB_USER: drupal
+      MARIADB_PASSWORD: synthetic-local-database
+    volumes: [database:/var/lib/mysql]
+    healthcheck:
+      test: [CMD, healthcheck.sh, --connect, --innodb_initialized]
+      interval: 3s
+      timeout: 3s
+      retries: 50
+  mock:
+    image: node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914
+    command: [node, /tests/mock-paymento.mjs]
+    volumes: [./tests:/tests:ro]
+    ports: [127.0.0.1:18101:3000]
+  drupal:
+    build: .
+    platform: linux/amd64
+    depends_on:
+      db: {condition: service_healthy}
+      mock: {condition: service_started}
+    ports: [127.0.0.1:18100:80]
+    environment:
+      PAYMENTO_DRUPAL_API_KEY: synthetic-api-key
+      PAYMENTO_DRUPAL_IPN_SECRET: synthetic-ipn-secret
+    volumes:
+      - ./commerce_paymento:/opt/drupal/web/modules/custom/commerce_paymento:ro
+      - ./tests:/paymento-tests:ro
+      - files:/opt/drupal/web/sites/default/files
+      - private:/opt/drupal/private
+volumes:
+  database:
+  files:
+  private:

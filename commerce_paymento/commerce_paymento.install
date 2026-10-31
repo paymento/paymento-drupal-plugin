@@ -1,0 +1,54 @@
+<?php
+/** Implements hook_schema(). */
+function commerce_paymento_schema(): array {
+  $integer = ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE];
+  $text = ['type' => 'text', 'size' => 'big', 'not null' => TRUE];
+  $string = fn(int $length) => ['type' => 'varchar_ascii', 'length' => $length, 'not null' => TRUE];
+  $nullable = fn(array $field) => array_replace($field, ['not null' => FALSE]);
+  return [
+    'commerce_paymento_order' => [
+      'fields' => ['order_id' => $integer, 'gateway' => $string(64), 'winning_attempt' => $nullable($integer), 'refunded' => $integer + ['default' => 0], 'state' => $string(24), 'created' => $integer],
+      'primary key' => ['order_id'],
+    ],
+    'commerce_paymento_attempt' => [
+      'fields' => [
+        'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE], 'order_id' => $integer,
+        'payment_id' => $integer, 'gateway' => $string(64), 'external_id' => $string(64),
+        'credential_reference' => $string(128), 'environment' => $string(24),
+        'token' => $nullable($string(128) + ['binary' => TRUE]), 'amount' => $string(64), 'currency' => $string(12),
+        'order_total' => $string(64), 'fingerprint' => $string(64), 'api_base' => $string(255), 'checkout_base' => $string(255),
+        'refunded' => $integer + ['default' => 0], 'created' => $integer,
+      ],
+      'primary key' => ['id'], 'unique keys' => ['token' => ['token'], 'external_id' => ['external_id'], 'payment_id' => ['payment_id']], 'indexes' => ['order_id' => ['order_id']],
+    ],
+    'commerce_paymento_inbox' => [
+      'fields' => [
+        'id' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE], 'attempt_id' => $integer,
+        'payload' => $text, 'verified' => $nullable($text), 'received' => $integer,
+        'processed' => $nullable($integer), 'retries' => $integer + ['default' => 0], 'next_attempt' => $integer,
+        'queued_until' => $integer + ['default' => 0],
+        'last_error' => $nullable($string(255)),
+      ],
+      'primary key' => ['id'], 'indexes' => ['due' => ['processed', 'next_attempt']],
+    ],
+    'commerce_paymento_outbox' => [
+      'fields' => ['order_id' => $integer, 'created' => $integer, 'kind' => $string(24)],
+      'primary key' => ['order_id'],
+    ],
+  ];
+}
+
+/** Adds fair queue-repair scheduling metadata without touching financial history. */
+function commerce_paymento_update_11001(): void {
+  $schema = \Drupal::database()->schema();
+  if (!$schema->fieldExists('commerce_paymento_inbox', 'queued_until')) {
+    $schema->addField('commerce_paymento_inbox', 'queued_until', ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0]);
+  }
+}
+
+/** Implements hook_requirements(). */
+function commerce_paymento_requirements($phase): array {
+  $driver = \Drupal\Core\Database\Database::getConnection()->driver();
+  $supported = $driver === 'mysql';
+  return ['commerce_paymento_database' => ['title' => t('Paymento database locking'), 'value' => $supported ? t('MySQL/MariaDB driver') : t('Unsupported database driver'), 'severity' => $supported ? REQUIREMENT_OK : REQUIREMENT_ERROR, 'description' => t('Paymento requires MySQL-compatible GET_LOCK and row locking. Validated on MariaDB 11.4; PostgreSQL and SQLite are unsupported.')]];
+}

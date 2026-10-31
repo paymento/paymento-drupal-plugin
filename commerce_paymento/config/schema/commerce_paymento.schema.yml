@@ -1,0 +1,9 @@
+commerce_payment.commerce_payment_gateway.plugin.paymento:
+  type: commerce_payment_gateway_configuration
+  mapping:
+    environment:
+      type: string
+      label: Paymento environment
+    credential_reference:
+      type: string
+      label: Server-side credential reference

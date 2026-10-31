@@ -1,0 +1,5 @@
+<?php
+/** Implements hook_cron(). */
+function commerce_paymento_cron(): void {
+  \Drupal::service('commerce_paymento.manager')->enqueueDue();
+}

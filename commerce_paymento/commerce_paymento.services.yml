@@ -1,0 +1,9 @@
+services:
+  commerce_paymento.manager:
+    class: Drupal\commerce_paymento\PaymentoManager
+    arguments: ['@database', '@entity_type.manager', '@http_client', '@queue']
+  commerce_paymento.uninstall_validator:
+    class: Drupal\commerce_paymento\UninstallValidator
+    arguments: ['@database']
+    tags:
+      - { name: module_install.uninstall_validator }

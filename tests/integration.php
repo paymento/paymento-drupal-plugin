@@ -1,0 +1,145 @@
+<?php
+require '/paymento-tests/bootstrap.php';
+use Symfony\Component\HttpFoundation\Request;
+use Drupal\commerce_price\Price;
+global $manager, $db, $checks;
+$manager = \Drupal::service('commerce_paymento.manager'); $db = \Drupal::database(); $checks = 0;
+function check($value, string $label): void { global $checks; if (!$value) { throw new RuntimeException('FAIL: ' . $label); } $checks++; echo 'PASS ' . $label . PHP_EOL; }
+function control(array $body): array { return json_decode((string) \Drupal::httpClient()->post('http://mock:3000/__control', ['json' => $body])->getBody(), TRUE); }
+function mock_state(): array { return json_decode((string) \Drupal::httpClient()->get('http://mock:3000/__state')->getBody(), TRUE); }
+function receipt(array $a, int $status, string $method = 'POST'): int {
+  global $manager, $gateway;
+  control(['token' => $a['token'], 'status' => $status]);
+  $raw = json_encode(['Token' => $a['token'], 'OrderId' => $a['external_id'], 'OrderStatus' => $status]);
+  $request = Request::create('/payment/notify/paymento_fixture', $method, [], [], [], ['HTTP_X_HMAC_SHA256_SIGNATURE' => strtoupper(hash_hmac('sha256', $raw, 'synthetic-ipn-secret'))], $raw);
+  return $manager->receive($gateway, $request)->getStatusCode();
+}
+function row_for(array $a): array { global $db; return $db->select('commerce_paymento_inbox', 'i')->fields('i')->condition('attempt_id', $a['id'])->orderBy('id', 'DESC')->range(0, 1)->execute()->fetchAssoc(); }
+function process_attempt(array $a): void { global $manager; $manager->process((int) row_for($a)['id']); }
+function expect_failure(callable $work): bool { try { $work(); return FALSE; } catch (Throwable $error) { return TRUE; } }
+control(['reset' => TRUE]);
+check(\Drupal::VERSION === '11.4.11', 'pinned native Drupal 11.4.11');
+check(str_starts_with(PHP_VERSION, '8.4.') && extension_loaded('bcmath'), 'native PHP8.4 and bcmath');
+check($gateway->getPlugin() instanceof \Drupal\commerce_paymento\Plugin\Commerce\PaymentGateway\Paymento, 'native attribute gateway discovery');
+check(\Drupal::service('plugin.manager.commerce_payment_method_type')->hasDefinition('paymento_crypto'), 'native crypto method type discovery without card form');
+$o = fixture_order(); $a = fixture_attempt($o);
+check($a['amount'] === '12.34' && $a['currency'] === 'USD', 'positive trusted native balance initializes decimal request');
+check(fixture_payment($a)->getState()->getId() === 'new' && !fixture_fresh_order((int) $o->id())->isPaid(), 'native saved payment remains new and order unpaid');
+$same = fixture_attempt($o); check($same['token'] === $a['token'], 'checkout rebuild reuses persisted token');
+$wrong = Request::create('/', 'POST', [], [], [], ['HTTP_X_HMAC_SHA256_SIGNATURE' => 'bad'], '{}');
+check($manager->receive($gateway, $wrong)->getStatusCode() === 401, 'bad raw signature rejected');
+$unknown = '{"Token":"unknown","OrderId":"unknown"}';
+$r = Request::create('/', 'POST', [], [], [], ['HTTP_X_HMAC_SHA256_SIGNATURE' => strtoupper(hash_hmac('sha256', $unknown, 'synthetic-ipn-secret'))], $unknown);
+check($manager->receive($gateway, $r)->getStatusCode() === 404, 'signed unknown token rejected');
+$v = mock_state()['verifies']; check(receipt($a, 3) === 200 && mock_state()['verifies'] === $v, 'signed callback durable before any verification');
+process_attempt($a); check(!fixture_fresh_order((int) $o->id())->isPaid(), 'success=false confirming never pays native order');
+check(receipt($a, 7, 'PUT') === 200, 'signed PUT callback accepted');
+process_attempt($a);
+$paid = fixture_fresh_order((int) $o->id());
+check(fixture_payment($a)->getState()->getId() === 'completed', 'verified payment completes actual native Payment');
+check($paid->isPaid() && $paid->getTotalPaid()->equals(new Price('12.34', 'USD')), 'explicit native updater persists total-paid and zero balance');
+check($paid->getState()->getId() !== 'draft', 'native offsite order-paid subscriber places order');
+check($manager->state((int) $o->id()) === 'paid', 'parent paid coordination persisted');
+receipt($a, 8); process_attempt($a); receipt($a, 4); process_attempt($a);
+check(fixture_payment($a)->isCompleted() && $manager->state((int) $o->id()) === 'paid', 'duplicate and stale negative cannot regress paid');
+check((int) $db->select('commerce_paymento_outbox', 'x')->condition('order_id', $o->id())->countQuery()->execute()->fetchField() === 1, 'one durable paid outbox event');
+$b = fixture_attempt(fixture_order()); control(['token' => $b['token'], 'verifyOrderId' => 'foreign']); receipt($b, 7);
+check(expect_failure(fn() => process_attempt($b)) && !fixture_payment($b)->isCompleted(), 'verified foreign identity cannot complete native payment');
+$c = fixture_attempt(fixture_order()); control(['token' => $c['token'], 'verifyAmount' => '99.99']); receipt($c, 7);
+check(expect_failure(fn() => process_attempt($c)) && !fixture_payment($c)->isCompleted(), 'verified wrong amount fails closed');
+$d = fixture_attempt(fixture_order()); control(['token' => $d['token'], 'missingAmount' => TRUE]); receipt($d, 7);
+process_attempt($d);
+check(fixture_payment($d)->isCompleted(), 'optional null settlement amount accepts trusted identity-bound payment');
+$absent = fixture_attempt(fixture_order()); control(['token' => $absent['token'], 'missingSettlement' => TRUE]); receipt($absent, 7); process_attempt($absent);
+check(fixture_payment($absent)->isCompleted(), 'absent optional settlement accepts trusted identity-bound payment');
+$e = fixture_attempt(fixture_order()); receipt($e, 7); $ep = fixture_payment($e); $ep->setAmount(new Price('99', 'USD')); $ep->save();
+check(expect_failure(fn() => process_attempt($e)) && !fixture_payment($e)->isCompleted(), 'edited native payment amount cannot receive saved verification');
+$f = fixture_attempt(fixture_order()); receipt($f, 7); control(['mode' => 'outage']);
+check(expect_failure(fn() => process_attempt($f)) && row_for($f)['processed'] === NULL, 'remote outage retains durable retry work');
+control(['mode' => 'normal']); process_attempt($f);
+check(fixture_fresh_order($f['order_id'])->isPaid(), 'worker retry recovers without another callback');
+$g = fixture_attempt(fixture_order()); receipt($g, 7); $id = (int) row_for($g)['id']; file_put_contents('/tmp/paymento-after-verify-' . $id, 'fixture');
+check(expect_failure(fn() => process_attempt($g)) && row_for($g)['verified'] !== NULL && !fixture_payment($g)->isCompleted(), 'verified approval persists across synthetic crash');
+unlink('/tmp/paymento-after-verify-' . $id); process_attempt($g);
+check(fixture_fresh_order($g['order_id'])->isPaid(), 'cached verified row recovers native completion');
+$h = fixture_attempt(fixture_order()); receipt($h, 7); $id = (int) row_for($h)['id']; file_put_contents('/tmp/paymento-after-native-' . $id, 'fixture');
+check(expect_failure(fn() => process_attempt($h)) && !fixture_payment($h)->isCompleted(), 'native mutation failure rolls back actual payment');
+check(!fixture_fresh_order($h['order_id'])->isPaid() && row_for($h)['processed'] === NULL, 'native ledger and inbox roll back together');
+unlink('/tmp/paymento-after-native-' . $id); $retryStart = microtime(TRUE); process_attempt($h);
+check(microtime(TRUE) - $retryStart < 10, 'rolled-back native save releases only owned semaphore for immediate retry');
+check(fixture_fresh_order($h['order_id'])->isPaid(), 'winner reservation survives rollback and retry');
+$jOrder = fixture_order(); $j = fixture_attempt($jOrder); $j2 = fixture_attempt($jOrder, TRUE);
+receipt($j, 7); process_attempt($j); receipt($j2, 7);
+check(expect_failure(fn() => process_attempt($j2)) && row_for($j2)['processed'] === NULL, 'second actual paid token retained for duplicate review');
+receipt($j2, 10); process_attempt($j2);
+check($manager->state($j['order_id']) === 'paid' && fixture_fresh_order($j['order_id'])->isPaid(), 'losing-token refund does not revoke winning native ledger');
+receipt($j, 10); process_attempt($j);
+check($manager->state($j['order_id']) === 'refunded' && fixture_payment($j)->getState()->getId() === 'refunded', 'winning refund synchronizes native Payment state');
+check(fixture_fresh_order($j['order_id'])->getTotalPaid()->isZero() && fixture_payment($j)->getRefundedAmount()->equals(fixture_payment($j)->getAmount()), 'full native refund bookkeeping removes total-paid balance');
+receipt($j, 8); process_attempt($j);
+check($manager->state($j['order_id']) === 'refunded' && fixture_fresh_order($j['order_id'])->getTotalPaid()->isZero(), 'stale paid cannot resurrect refunded ledger');
+$k = fixture_attempt(fixture_order()); receipt($k, 7); $id = (int) row_for($k)['id']; file_put_contents('/tmp/paymento-after-verify-' . $id, 'fixture'); expect_failure(fn() => process_attempt($k));
+receipt($k, 10); process_attempt($k); unlink('/tmp/paymento-after-verify-' . $id); $manager->process($id);
+check(!fixture_payment($k)->isCompleted(), 'refund before cached approval blocks future completion');
+$zero = fixture_order('0');
+check(expect_failure(fn() => fixture_attempt($zero)), 'zero-balance order never requests remote payment');
+check(expect_failure(fn() => $manager->configureCallback('paymento_fixture')), 'local HTTP callback configuration refused');
+$validator = \Drupal::service('commerce_paymento.uninstall_validator');
+check(count($validator->validate('commerce_paymento')) > 0, 'module uninstall blocks silent financial-history deletion');
+$config = $gateway->toArray();
+check(!str_contains(json_encode($config), 'synthetic-api-key') && !str_contains(json_encode($config), 'synthetic-ipn-secret'), 'exported gateway config contains no credential secret');
+
+$expiredOrder = fixture_order(); $expired = fixture_attempt($expiredOrder); receipt($expired, 4); process_attempt($expired);
+receipt($expired, 3); process_attempt($expired);
+check(fixture_payment($expired)->getRemoteState() === '4', 'pending replay preserves terminal expired token state');
+$replacement = fixture_attempt($expiredOrder);
+check($replacement['token'] !== $expired['token'], 'expired token is not reused by normal checkout rebuild');
+$currencyEdit = fixture_attempt(fixture_order()); receipt($currencyEdit, 7); $edited = fixture_payment($currencyEdit); $edited->setAmount(new Price($currencyEdit['amount'], 'EUR')); $edited->save();
+check(expect_failure(fn() => process_attempt($currencyEdit)) && !fixture_payment($currencyEdit)->isCompleted(), 'native payment currency mismatch held for review');
+$canceled = fixture_attempt(fixture_order()); $cancelOrder = fixture_fresh_order($canceled['order_id']); $cancelOrder->set('state', 'canceled'); $cancelOrder->save(); receipt($canceled, 7);
+check(expect_failure(fn() => process_attempt($canceled)) && !fixture_payment($canceled)->isCompleted() && fixture_fresh_order($canceled['order_id'])->getState()->getId() === 'canceled', 'late payment for canceled native order stays in review');
+$manual = \Drupal\commerce_payment\Entity\PaymentGateway::load('other_fixture');
+if (!$manual) { $manual = \Drupal\commerce_payment\Entity\PaymentGateway::create(['id' => 'other_fixture', 'label' => 'Other native tender', 'plugin' => 'manual', 'status' => TRUE, 'configuration' => ['display_label' => 'Manual', 'mode' => 'test', 'instructions' => ['value' => '', 'format' => 'plain_text']]]); $manual->save(); }
+$partial = fixture_order();
+$tender = \Drupal::entityTypeManager()->getStorage('commerce_payment')->create(['state' => 'completed', 'amount' => new Price('5.00', 'USD'), 'payment_gateway' => $manual->id(), 'order_id' => $partial->id()]); $tender->save();
+// Deliberately do not flush the deferred native updater before initiation.
+$remaining = fixture_attempt($partial);
+check($remaining['amount'] === '7.34', 'partial native tender charges only outstanding balance');
+receipt($remaining, 7); process_attempt($remaining);
+check(fixture_fresh_order($remaining['order_id'])->isPaid() && fixture_fresh_order($remaining['order_id'])->getTotalPaid()->equals(new Price('12.34', 'USD')), 'mixed native tenders produce correct final paid ledger');
+$lateTenderOrder = fixture_order(); $lateTender = fixture_attempt($lateTenderOrder);
+$otherFull = \Drupal::entityTypeManager()->getStorage('commerce_payment')->create(['state' => 'completed', 'amount' => new Price('12.34', 'USD'), 'payment_gateway' => $manual->id(), 'order_id' => $lateTenderOrder->id()]); $otherFull->save();
+receipt($lateTender, 7);
+check(expect_failure(fn() => process_attempt($lateTender)) && !fixture_payment($lateTender)->isCompleted(), 'already completed independent tender prevents stale balance completion');
+check(\Drupal::entityTypeManager()->getStorage('commerce_payment')->loadUnchanged($otherFull->id())->isCompleted(), 'independent gateway payment remains preserved');
+\Drupal::service('commerce_payment.order_updater')->updateOrder(fixture_fresh_order($lateTender['order_id']), TRUE);
+$pendingTenderOrder = fixture_order(); $pendingTender = fixture_attempt($pendingTenderOrder);
+$pendingOther = \Drupal::entityTypeManager()->getStorage('commerce_payment')->create(['state' => 'completed', 'amount' => new Price('5', 'USD'), 'payment_gateway' => $manual->id(), 'order_id' => $pendingTenderOrder->id()]); $pendingOther->save();
+receipt($pendingTender, 3); process_attempt($pendingTender);
+check(fixture_fresh_order($pendingTender['order_id'])->getTotalPaid()->equals(new Price('5', 'USD')) && !fixture_payment($pendingTender)->isCompleted(), 'confirming callback persists independent deferred native ledger');
+$afterRefundOrder = fixture_order(); $winner = fixture_attempt($afterRefundOrder); $loser = fixture_attempt($afterRefundOrder, TRUE);
+receipt($winner, 7); process_attempt($winner); receipt($winner, 10); process_attempt($winner); receipt($loser, 7);
+check(expect_failure(fn() => process_attempt($loser)) && row_for($loser)['processed'] === NULL, 'new money on different token after winner refund remains manual review');
+$manualRefund = fixture_attempt(fixture_order()); receipt($manualRefund, 7); process_attempt($manualRefund);
+$refundedPayment = fixture_payment($manualRefund); $refundedPayment->setRefundedAmount($refundedPayment->getAmount()); $refundedPayment->setState('refunded'); $refundedPayment->save();
+receipt($manualRefund, 8); process_attempt($manualRefund);
+check($manager->state($manualRefund['order_id']) === 'refunded' && fixture_fresh_order($manualRefund['order_id'])->getTotalPaid()->isZero(), 'native administrative refund terminality survives paid replay');
+$fakeIds = [];
+for ($n = 0; $n < 101; $n++) { $fakeIds[] = (int) $db->insert('commerce_paymento_inbox')->fields(['attempt_id' => $a['id'], 'payload' => '{}', 'received' => time(), 'next_attempt' => 0, 'queued_until' => 0, 'retries' => $n === 100 ? 0 : 5])->execute(); }
+$freshId = end($fakeIds); $manager->enqueueDue();
+$freshQueue = $db->select('commerce_paymento_inbox', 'i')->fields('i', ['queued_until'])->condition('id', $freshId)->execute()->fetchField();
+check((int) $freshQueue > time(), 'lost new receipt queue item repaired ahead of more than100 old failures');
+$queueBefore = (int) $db->select('queue', 'q')->condition('name', 'commerce_paymento')->condition('data', serialize($freshId))->countQuery()->execute()->fetchField();
+$manager->enqueueDue();
+$queueAfter = (int) $db->select('queue', 'q')->condition('name', 'commerce_paymento')->condition('data', serialize($freshId))->countQuery()->execute()->fetchField();
+check($queueBefore === 1 && $queueAfter === 1, 'queue repair lease avoids every-cron duplicate insertion');
+$db->delete('commerce_paymento_inbox')->condition('id', $fakeIds, 'IN')->execute();
+$shipping = fixture_order(); $shippingPending = fixture_attempt($shipping);
+\Drupal\field\Entity\FieldStorageConfig::create(['field_name' => 'shipments', 'entity_type' => 'commerce_order', 'type' => 'string'])->save();
+\Drupal\field\Entity\FieldConfig::create(['field_name' => 'shipments', 'entity_type' => 'commerce_order', 'bundle' => 'default'])->save();
+receipt($shippingPending, 7);
+check(expect_failure(fn() => process_attempt($shippingPending)) && !fixture_payment($shippingPending)->isCompleted(), 'shipping added after initiation holds first completion for review');
+check(expect_failure(fn() => fixture_attempt(fixture_fresh_order($shipping->id()))), 'shipping field presence refuses unsupported initiation');
+\Drupal\field\Entity\FieldConfig::loadByName('commerce_order', 'default', 'shipments')->delete();
+\Drupal\field\Entity\FieldStorageConfig::loadByName('commerce_order', 'shipments')?->delete();
+echo json_encode(['native_integration_passed' => $checks, 'drupal' => \Drupal::VERSION, 'php' => PHP_VERSION]) . PHP_EOL;

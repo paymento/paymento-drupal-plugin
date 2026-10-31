@@ -79,7 +79,7 @@ const adminPath='/admin/commerce/config/payment-gateways/manage/paymento_fixture
 r=await new Jar().request(adminPath);check(r.status===403,'anonymous user cannot access gateway configuration');
 r=await customer.request(adminPath);check(r.status===403,'ordinary authenticated customer cannot access gateway configuration');
 const admin=new Jar();await login(admin,'paymento-test-admin','synthetic-local-admin-password');r=await admin.request(adminPath);
-check(r.status===200&&r.html.includes('credential_reference')&&r.html.includes('environment'),'native administrator can edit gateway environment and credential reference');
+check(r.status===200&&r.html.includes('credential_reference')&&!r.html.includes('value="beta"'),'native administrator can edit gateway credential reference; no beta option');
 check(!r.html.includes('synthetic-api-key')&&!r.html.includes('synthetic-ipn-secret'),'gateway configuration HTML contains no configured secret values');
 check(Boolean(forms(r.html).some(f=>f.fields.some(x=>x.name==='form_token'))),'native administrator configuration form has CSRF protection');
 const callbackPath='/admin/commerce/config/payment-gateways/paymento_fixture/paymento-callback';

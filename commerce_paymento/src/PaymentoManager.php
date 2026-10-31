@@ -27,9 +27,8 @@ final class PaymentoManager {
     return $credentials;
   }
   private function bases(PaymentGatewayInterface $gateway): array {
-    $beta = ($gateway->getPlugin()->getConfiguration()['environment'] ?? '') === 'beta';
-    $api = $beta ? 'https://beta-api.paymento.io' : 'https://api.paymento.io';
-    $checkout = $beta ? 'https://beta.paymento.io/gateway' : 'https://app.paymento.io/gateway';
+    $api = 'https://api.paymento.io';
+    $checkout = 'https://app.paymento.io/gateway';
     if (Settings::get('commerce_paymento_test_mode', FALSE)) {
       $api = Settings::get('commerce_paymento_api_base', $api);
       $checkout = Settings::get('commerce_paymento_checkout_base', $checkout);

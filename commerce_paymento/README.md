@@ -4,7 +4,7 @@
 
 Version 1.0 supports Drupal 11.4 / Commerce 3.3, PHP 8.4 with bcmath and MySQL-compatible database locking. Validated fixture: Drupal 11.4.11, Commerce 3.3.13, PHP 8.4.27, MariaDB 11.4. Only the default simple non-shippable checkout is supported. Installing Commerce Shipping makes initiation and first completion refuse processing. Custom checkout, fulfillment fields, subscriptions, partial refunds, and shipment adapters require additional validation.
 
-Install this directory as web/modules/custom/commerce_paymento, then run `drush en commerce_paymento` and `drush updatedb`. Enable a Paymento gateway under Commerce > Configuration > Payment gateways. Select Production or Beta and a server-side credential reference. Put credentials in settings.php (supply real values from environment or your secret manager):
+Install this directory as web/modules/custom/commerce_paymento, then run `drush en commerce_paymento` and `drush updatedb`. Enable a Paymento gateway under Commerce > Configuration > Payment gateways. Set a server-side credential reference. Put credentials in settings.php (supply real values from environment or your secret manager):
 
 ```php
 $settings['commerce_paymento_credentials']['merchant'] = [
@@ -13,7 +13,7 @@ $settings['commerce_paymento_credentials']['merchant'] = [
 ];
 ```
 
-Set the gateway credential reference to `merchant`. Credentials are never stored in gateway configuration or redisplayed. Keep the reference/environment stable while attempts remain unresolved; changing them holds old work for review. Rotate secret material deliberately with a retained recovery plan.
+Set the gateway credential reference to `merchant`. Credentials are never stored in gateway configuration or redisplayed. Keep the reference stable while attempts remain unresolved; changing them holds old work for review. Rotate secret material deliberately with a retained recovery plan.
 
 The callback URL is `/paymento/notify/GATEWAY_ID` on the store's public HTTPS origin. This is the URL to enter as the IPN URL in the Paymento panel — not the admin form address below. POST and PUT are accepted after raw-body HMAC validation. The explicit admin form at `/admin/commerce/config/payment-gateways/GATEWAY_ID/paymento-callback` validates HTTPS, reads existing remote settings, and refuses replacing a different callback. Use a separate Paymento credential/account where callback ownership differs.
 

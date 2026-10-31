@@ -16,7 +16,7 @@ $store = $stores ? reset($stores) : Store::create(['type' => 'online', 'uid' => 
 if ($store->isNew()) { $store->save(); }
 $gateway = PaymentGateway::load('paymento_fixture');
 if (!$gateway) {
-  $gateway = PaymentGateway::create(['id' => 'paymento_fixture', 'label' => 'Paymento Fixture', 'status' => TRUE, 'plugin' => 'paymento', 'configuration' => ['display_label' => 'Crypto with Paymento', 'mode' => 'test', 'environment' => 'beta', 'credential_reference' => 'fixture', 'payment_method_types' => ['paymento_crypto'], 'collect_billing_information' => FALSE], 'conditions' => []]);
+  $gateway = PaymentGateway::create(['id' => 'paymento_fixture', 'label' => 'Paymento Fixture', 'status' => TRUE, 'plugin' => 'paymento', 'configuration' => ['display_label' => 'Crypto with Paymento', 'mode' => 'test', 'environment' => 'production', 'credential_reference' => 'fixture', 'payment_method_types' => ['paymento_crypto'], 'collect_billing_information' => FALSE], 'conditions' => []]);
   $gateway->save();
 }
 $vars = \Drupal::entityTypeManager()->getStorage('commerce_product_variation')->loadByProperties(['sku' => 'PAYMENTO-FIXTURE']);

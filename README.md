@@ -38,7 +38,7 @@ drush cr
 
 ### 2. Add your Paymento keys to `settings.php`
 
-In the Paymento merchant panel, open your store and copy its **API key** and **Secret key** (the secret signs callbacks). Add them to `web/sites/default/settings.php`:
+In the [Paymento merchant panel](https://app.paymento.io), open your store and copy its **API key** and **Secret key** (the secret signs callbacks). Add them to `web/sites/default/settings.php`:
 
 ```php
 $settings['commerce_paymento_credentials']['merchant'] = [
@@ -57,7 +57,6 @@ Go to **Commerce → Configuration → Payment gateways → Add payment gateway*
 |-------|-------|
 | Name | e.g. `Paymento` — note the **machine name** (e.g. `paymento`), you need it in step 4 |
 | Plugin | **Paymento** |
-| Paymento environment | **Production**, or **Beta** for testing with testnet coins |
 | Server-side credential reference | `merchant` (the name used in step 2) |
 | Status | Enabled |
 
@@ -94,7 +93,7 @@ If your server's default `php` is not 8.4, call it explicitly, e.g. `/usr/bin/ph
 ### 6. Test one payment
 
 1. Create a product (**Commerce → Products → Add product**) with a small price.
-2. Buy it as a customer and choose **Crypto with Paymento**. Use the **Beta** environment and testnet coins first.
+2. Buy it as a customer, choose **Crypto with Paymento** and pay a small real amount.
 3. After paying you return to a "pending" page — that is expected.
 4. Within about a minute of the payment confirming, the order appears under **Commerce → Orders** as **Completed** with a completed payment.
 
